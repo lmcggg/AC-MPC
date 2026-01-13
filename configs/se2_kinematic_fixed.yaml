@@ -1,0 +1,123 @@
+seed: 42
+device: cuda
+
+model:
+  history_window: 16
+  segment_len: 16
+  mem_len: 32
+  max_history_tokens: 64
+  transformer:
+    d_model: 128
+    n_heads: 4
+    d_inner: 256
+    dropout: 0.0   # Rimosso dropout per stabilità in RL
+    mem_len: 32
+    n_layers: 2    # Ridotto layers: per un task cinematico 3 layers sono troppi e lenti
+
+  waypoint_sequence_len: 1
+  waypoint_dim: 2
+  include_prev_action: false
+
+  actor:
+    input_dim: 3   # CORRETTO: x, y, theta
+    include_prev_action: false
+    waypoint_dim: 2
+    waypoint_sequence_len: 1
+    tanh_rescale_actions: false  # Warning: abilitare solo se l'actor non usa l'MPC come ultimo layer
+    transformer:
+      d_model: 128
+      n_heads: 4
+      d_inner: 256
+      dropout: 0.0
+      mem_len: 32
+      n_layers: 2
+    mpc:
+      # --- FIX CRITICI MPC ---
+      # FIX: horizon=2 (Transformer with long memory compensates)
+      horizon: 2
+      dt: 0.05
+      state_dim: 3         # CORRETTO
+      action_dim: 3        # CORRETTO
+
+      # Costi interni MPC: "Aggressive Tuning"
+      # Diciamo all'MPC: "Vai dove dice la rete (state_cost alto) e non preoccuparti del carburante (action_cost basso)"
+      state_cost: 10.0
+      action_cost: 0.005
+      terminal_state_cost: 10.0
+
+      latent_dim: 128
+      device: cpu
+      max_iter: 10         # Ridotto leggermente per velocità, 50 è overkill per 20 step
+      tol_x: 1.0e-3
+      tol_u: 1.0e-3
+      reg_eps: 1.0e-4
+
+      # Limiti fisici SE(2)
+      u_min: [-4.0, -4.0, -4.0]
+      u_max: [4.0, 4.0, 4.0]
+
+      require_analytic_jacobian: true
+      enable_autodiff_fallback: true
+      jacobian_cache_size: 1024
+      jacobian_cache_max_age: 200
+      warm_start_cache_max_size: 1
+      warm_start_drift_tol: 0.01
+
+  critic:
+    input_dim: 3
+    include_prev_action: false
+    waypoint_dim: 2
+    waypoint_sequence_len: 1
+    transformer:
+      d_model: 128
+      n_heads: 4
+      d_inner: 256
+      dropout: 0.0
+      mem_len: 32
+      n_layers: 2
+
+sampler:
+  num_envs: 32         # Aumentato per avere gradienti più stabili
+  rollout_steps: 200   # Accorciato leggermente per aggiornamenti più frequenti
+  episode_len: 400
+
+training:
+  device: cpu # O cuda se disponibile
+
+  # Tuning conservativo ma efficace
+  actor_lr: 2.5e-5
+  critic_lr: 5.0e-5   # Il critico deve imparare più veloce dell'actor
+
+  mini_batch_size: 256 # Più grande per meno update per iterazione
+  ppo_epochs: 2        # Ridotto per diminuire la frequenza di update
+
+  max_grad_norm: 1.0   # Riportato a valori standard
+
+  clip_param: 0.1
+  target_kl: 0.2      # Target KL più permissivo con normalizzazione attiva
+  value_clip_range: 0.2
+
+  # --- FIX CRITICO ENTROPIA ---
+  entropy_coeff: 0.0   # ZERO. L'MPC non ha bisogno di entropia artificiale.
+  value_loss_coeff: 0.5
+
+  gamma: 0.99
+  gae_lambda: 0.95
+
+  normalize_returns: false
+  normalize_observations: false
+  return_clip_value: 10.0
+
+  checkpoint_interval: 10
+  checkpoint_metric: episode_reward
+  checkpoint_mode: max
+
+  log_interval: 1
+  log_to_stdout: true
+  alignment_loss_coeff: 0.0
+
+diagnostics:
+  enable_cost_monitor: true
+  enable_reward_stats: true
+  enable_plan_drift_checker: false
+  enable_safety_hooks: false

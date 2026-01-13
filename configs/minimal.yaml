@@ -1,0 +1,7 @@
+seed: 1
+device: cpu
+
+training:
+  log_interval: 1
+  log_to_stdout: true
+  checkpoint_interval: 0

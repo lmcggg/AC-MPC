@@ -1,0 +1,108 @@
+seed: 7
+device: cpu
+
+model:
+  history_window: 16
+  segment_len: 16
+  mem_len: 32
+  max_history_tokens: 64
+  kv_cache_max_tokens: 64
+  transformer:
+    d_model: 128
+    n_heads: 4
+    d_inner: 256
+    dropout: 0.1
+    mem_len: 32
+    n_layers: 3
+  waypoint_sequence_len: 1
+  waypoint_dim: 2
+  include_prev_action: false
+  actor:
+    input_dim: 4
+    include_prev_action: false
+    waypoint_dim: 2
+    waypoint_sequence_len: 1
+    transformer:
+      d_model: 128
+      n_heads: 4
+      d_inner: 256
+      dropout: 0.1
+      mem_len: 32
+      n_layers: 3
+    mpc:
+      horizon: 5
+      state_dim: 4
+      action_dim: 2
+      dt: 0.05
+      latent_dim: 128
+      device: cpu
+      max_iter: 50       # More iterations as in paper
+      tol_x: 1.0e-2      # Much looser tolerance during learning
+      tol_u: 1.0e-2      # Much looser tolerance during learning  
+      reg_eps: 1.0e-3    # Significant regularization
+      u_min: [-4.0, -4.0]  # Match environment max_speed
+      u_max: [4.0, 4.0]   # Match environment max_speed
+      require_analytic_jacobian: true
+      enable_autodiff_fallback: true
+      jacobian_cache_size: 256
+      jacobian_cache_max_age: 128
+      warm_start_cache_max_size: 32
+      warm_start_drift_tol: 1.0e-3
+    cost_map:
+      hidden_dim: 512        # Match paper: two layers of width 512
+      num_layers: 2
+      dropout: 0.1
+      noise_scale_diag: 0.1
+      noise_scale_linear: 0.1
+      bounds:
+        # Bounds aligned with paper 2306.09852 (Section G):
+        # sigmoid → [0.1, 1e5] for Q/R, and linear terms bounded by ±1e5.
+        q_min: 0.1
+        q_max: 100000.0
+        r_min: 0.1
+        r_max: 100000.0
+        linear_state_bound: 100000.0
+        linear_action_bound: 100000.0
+  critic:
+    input_dim: 4
+    include_prev_action: false
+    waypoint_dim: 2
+    waypoint_sequence_len: 1
+    transformer:
+      d_model: 128
+      n_heads: 4
+      d_inner: 256
+      dropout: 0.1
+      mem_len: 32
+      n_layers: 3
+
+sampler:
+  num_envs: 16
+  rollout_steps: 400
+  episode_len: 400
+
+training:
+  device: cpu
+  actor_lr: 1.0e-5     # Much lower for cost map stability (from paper)
+  critic_lr: 5.0e-5
+  # PPO hyper-parameters aligned to legacy ACMPC defaults
+  mini_batch_size: 400        # = episode_len per env
+  ppo_epochs: 4
+  clip_param: 0.12
+  entropy_coeff: 0.04
+  gamma: 0.98
+  gae_lambda: 0.90
+  target_kl: 0.02
+  max_grad_norm: 1.0
+  gradient_accumulation_steps: 1
+  use_amp: false
+  normalize_returns: true
+  return_clip_value: 10.0
+  log_interval: 10  # Log every 10 gradient steps instead of every step
+  log_to_stdout: true
+  checkpoint_interval: 1
+  # Seleziona il checkpoint migliore in base al ritorno episodico medio
+  checkpoint_metric: episode_reward
+  checkpoint_mode: max
+  # Auxiliary alignment loss (proof-of-concept for double integrator)
+  alignment_loss_coeff: 0.0    # Disabilitato per stabilità (debug NaN)
